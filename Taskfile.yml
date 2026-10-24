@@ -185,5 +185,5 @@ tasks:
     prompt: This deletes k3s and all PVC data. Are you sure?
     dir: "{{.ANSIBLE}}"
     cmds:
-      - ansible control_plane -b -m shell -a "/usr/local/bin/k3s-uninstall.sh; rm -rf /var/lib/rancher /etc/rancher"
+      - ansible control_plane -b -m shell -a "/usr/local/bin/k3s-uninstall.sh; rm -rf /var/lib/rancher /etc/rancher" {{.CLI_ARGS}}
       - rm -f {{.ROOT_DIR}}/kubeconfig
