@@ -48,6 +48,12 @@ tasks:
     desc: Wait for all Flux kustomizations to be ready
     cmds: ["bash {{.SCRIPTS}}/50-wait-ready.sh"]
 
+  flux:export:
+    desc: Regenerate the committed Flux manifests (after bumping flux2 in .mise.toml)
+    cmds:
+      - flux install --export > {{.K8S}}/clusters/{{.CLUSTER}}/flux-system/gotk-components.yaml
+      - git diff --stat {{.K8S}}/clusters/{{.CLUSTER}}/flux-system
+
   # --- ansible ---
 
   ansible:deps:
