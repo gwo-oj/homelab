@@ -1,0 +1,29 @@
+---
+host_prep_packages:
+  - open-iscsi
+  - nfs-common
+  - apparmor
+  - apparmor-utils
+  - intel-media-va-driver-non-free
+  - vainfo
+  - intel-gpu-tools
+  - smartmontools
+  - lm-sensors
+  - curl
+  - ca-certificates
+  - gnupg
+  - jq
+
+host_prep_kernel_modules:
+  - overlay
+  - br_netfilter
+  - iscsi_tcp
+  - nbd
+
+host_prep_journal_max_use: 1G
+host_prep_journal_retention: 2week
+
+# It's a laptop: keep running with the lid closed, never suspend.
+host_prep_laptop_mode: true
+host_prep_disable_wifi_powersave: true
+host_prep_install_tailscale: true

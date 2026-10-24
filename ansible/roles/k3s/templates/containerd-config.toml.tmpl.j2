@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+{% raw %}{{ template "base" . }}{% endraw %}
+
+[plugins."io.containerd.grpc.v1.cri".containerd]
+  discard_unpacked_layers = true

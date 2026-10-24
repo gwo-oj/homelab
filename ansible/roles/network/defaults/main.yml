@@ -1,0 +1,4 @@
+---
+network_rollback_on_failure: true
+network_verify_host: 1.1.1.1
+network_verify_dns: github.com

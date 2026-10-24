@@ -1,0 +1,119 @@
+---
+- name: Is this the init node
+  ansible.builtin.set_fact:
+    k3s_is_first: "{{ inventory_hostname == groups['control_plane'][0] }}"
+
+- name: Fetch join token from the init node
+  when: not k3s_is_first
+  block:
+    - name: Read token
+      ansible.builtin.slurp:
+        src: "{{ k3s_data_dir }}/server/token"
+      delegate_to: "{{ groups['control_plane'][0] }}"
+      register: k3s_token_raw
+
+    - name: Set token
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+      no_log: true
+
+- name: Create config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ k3s_config_dir }}"
+    - "{{ k3s_config_dir }}/config.yaml.d"
+    - "{{ k3s_data_dir }}/agent/etc/containerd"
+
+- name: Write k3s config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_config_dir }}/config.yaml"
+    mode: "0600"
+  notify: Restart k3s
+
+# Kept out of config.yaml so it doesn't show up in diffs.
+- name: Write join token
+  ansible.builtin.copy:
+    dest: "{{ k3s_config_dir }}/config.yaml.d/token.yaml"
+    content: "token: {{ k3s_token }}\n"
+    mode: "0600"
+  when: not k3s_is_first
+  no_log: true
+  notify: Restart k3s
+
+- name: Write registry mirrors
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: "{{ k3s_config_dir }}/registries.yaml"
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Write containerd template
+  ansible.builtin.template:
+    src: containerd-config.toml.tmpl.j2
+    dest: "{{ k3s_data_dir }}/agent/etc/containerd/config.toml.tmpl"
+    mode: "0644"
+  notify: Restart k3s
+
+- name: Get installed version
+  ansible.builtin.command: k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install k3s
+  when: k3s_installed.rc != 0 or k3s_version not in k3s_installed.stdout
+  block:
+    - name: Download installer
+      ansible.builtin.get_url:
+        url: "{{ k3s_install_url }}"
+        dest: /tmp/k3s-install.sh
+        mode: "0755"
+
+    - name: Run installer
+      ansible.builtin.command: /tmp/k3s-install.sh server
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+      changed_when: true
+
+- name: Enable k3s
+  ansible.builtin.systemd_service:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for API server
+  ansible.builtin.command: k3s kubectl get --raw=/readyz
+  register: k3s_ready
+  until: k3s_ready.rc == 0
+  retries: 40
+  delay: 3
+  changed_when: false
+
+- name: Wait for node Ready
+  ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ ansible_hostname }} --timeout=120s
+  changed_when: false
+
+- name: Copy kubeconfig to the repo
+  when: k3s_is_first
+  block:
+    - name: Read kubeconfig
+      ansible.builtin.slurp:
+        src: "{{ k3s_config_dir }}/k3s.yaml"
+      register: k3s_kubeconfig
+      no_log: true
+
+    - name: Write kubeconfig
+      ansible.builtin.copy:
+        content: "{{ k3s_kubeconfig.content | b64decode | replace('127.0.0.1', ansible_host) }}"
+        dest: "{{ playbook_dir }}/../../kubeconfig"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true

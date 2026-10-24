@@ -1,0 +1,23 @@
+---
+- name: Provision k3s nodes
+  hosts: control_plane
+  become: true
+
+  pre_tasks:
+    - name: Check OS family
+      ansible.builtin.assert:
+        that: ansible_os_family == 'Debian'
+
+    - name: Check memory
+      ansible.builtin.assert:
+        that: ansible_memtotal_mb >= 7500
+        fail_msg: "{{ ansible_memtotal_mb }}MB RAM, need at least 8GB"
+
+  roles:
+    # Static IP has to be in place before k3s puts the IP in its certs.
+    - role: network
+      tags: [network]
+    - role: host_prep
+      tags: [host]
+    - role: k3s
+      tags: [k3s]

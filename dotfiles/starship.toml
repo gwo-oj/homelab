@@ -1,0 +1,20 @@
+format = "$directory$git_branch$git_status$kubernetes$cmd_duration$line_break$character"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+
+[git_branch]
+format = "[$branch]($style) "
+
+[kubernetes]
+disabled = false
+format = '[$context( \($namespace\))]($style) '
+style = "blue"
+
+[[kubernetes.contexts]]
+context_pattern = "default"
+context_alias = "homeserver"
+
+[cmd_duration]
+min_time = 2000

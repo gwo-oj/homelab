@@ -1,0 +1,14 @@
+---
+creation_rules:
+  # Kubernetes secrets: only encrypt the payload so Flux and kustomize can
+  # still read kind/metadata.
+  - path_regex: kubernetes/.*\.sops\.ya?ml$
+    encrypted_regex: "^(data|stringData)$"
+    mac_only_encrypted: true
+    age: >-
+      age1REPLACE_ME_RUN_TASK_SOPS_INIT
+
+  - path_regex: .*\.sops\.ya?ml$
+    mac_only_encrypted: true
+    age: >-
+      age1REPLACE_ME_RUN_TASK_SOPS_INIT

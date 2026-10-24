@@ -1,0 +1,23 @@
+# keys and decrypted files
+*.agekey
+age.key
+*.dec.yaml
+.decrypted~*
+kubeconfig
+kubeconfig.*
+
+# local state
+.task/
+.mise.local.toml
+.direnv/
+.cache/
+tmp/
+*.log
+
+# ansible
+ansible/.collections/
+ansible/*.retry
+
+# helm
+charts/
+*.tgz

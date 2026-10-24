@@ -1,0 +1,37 @@
+---
+# Add a control plane node to an existing cluster.
+#   task node:add -- node2
+
+- name: Check the existing cluster
+  hosts: "{{ groups['control_plane'][0] }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: API server is up
+      ansible.builtin.command: k3s kubectl get --raw=/readyz
+      changed_when: false
+
+- name: Join new node
+  hosts: "{{ target | mandatory }}"
+  become: true
+
+  pre_tasks:
+    - name: Refuse to run against the init node
+      ansible.builtin.assert:
+        that: inventory_hostname != groups['control_plane'][0]
+        fail_msg: "{{ inventory_hostname }} is the init node, use site.yml"
+
+  roles:
+    - role: host_prep
+    - role: k3s
+
+  post_tasks:
+    - name: Show nodes
+      ansible.builtin.command: k3s kubectl get nodes -o wide
+      delegate_to: "{{ groups['control_plane'][0] }}"
+      register: nodes
+      changed_when: false
+
+    - name: Nodes
+      ansible.builtin.debug:
+        var: nodes.stdout_lines

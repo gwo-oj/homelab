@@ -1,0 +1,100 @@
+---
+- name: Install packages
+  ansible.builtin.apt:
+    name: "{{ host_prep_packages }}"
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Load kernel modules on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: "{{ host_prep_kernel_modules | join('\n') }}\n"
+    mode: "0644"
+
+- name: Load kernel modules now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ host_prep_kernel_modules }}"
+  failed_when: false  # some may be built in
+
+- name: Configure sysctl
+  ansible.builtin.template:
+    src: 99-k3s.conf.j2
+    dest: /etc/sysctl.d/99-k3s.conf
+    mode: "0644"
+  notify: Reload sysctl
+
+- name: Enable iscsid
+  ansible.builtin.systemd_service:
+    name: iscsid
+    enabled: true
+    state: started
+  failed_when: false
+
+- name: Enable fstrim timer
+  ansible.builtin.systemd_service:
+    name: fstrim.timer
+    enabled: true
+    state: started
+
+- name: Allow containers to use the iGPU
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-intel-gpu.rules
+    content: |
+      KERNEL=="renderD*", GROUP="render", MODE="0666"
+    mode: "0644"
+  notify: Reload udev
+
+- name: Cap journald size
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/99-homelab.conf
+    content: |
+      [Journal]
+      SystemMaxUse={{ host_prep_journal_max_use }}
+      SystemMaxFileSize=128M
+      MaxRetentionSec={{ host_prep_journal_retention }}
+    mode: "0644"
+  notify: Restart journald
+
+- name: Ignore lid switch
+  ansible.builtin.copy:
+    dest: /etc/systemd/logind.conf.d/99-homelab.conf
+    content: |
+      [Login]
+      HandleLidSwitch=ignore
+      HandleLidSwitchExternalPower=ignore
+      HandleLidSwitchDocked=ignore
+    mode: "0644"
+  when: host_prep_laptop_mode
+  notify: Restart logind
+
+- name: Disable sleep targets
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    masked: true
+  loop: [sleep.target, suspend.target, hibernate.target, hybrid-sleep.target]
+  when: host_prep_laptop_mode
+
+- name: Disable WiFi power saving
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/99-no-wifi-powersave.conf
+    content: |
+      [connection]
+      wifi.powersave = 2
+    mode: "0644"
+  when: host_prep_disable_wifi_powersave
+  notify: Reload NetworkManager
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+# Install only. `tailscale up` needs interactive auth.
+- name: Install Tailscale
+  ansible.builtin.shell: curl -fsSL https://tailscale.com/install.sh | sh
+  args:
+    creates: /usr/bin/tailscale
+  when: host_prep_install_tailscale

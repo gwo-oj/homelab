@@ -1,0 +1,58 @@
+# {{ ansible_managed }}
+node-ip: "{{ ansible_host }}"
+advertise-address: "{{ ansible_host }}"
+tls-san:
+{% for h in groups['control_plane'] %}
+  - "{{ hostvars[h].ansible_host }}"
+  - "{{ h }}"
+  - "{{ h }}.{{ cluster_domain }}"
+{% endfor %}
+write-kubeconfig-mode: "0600"
+
+{% if inventory_hostname == groups['control_plane'][0] %}
+# Embedded etcd even on one node: k3s can't migrate sqlite -> etcd in place.
+cluster-init: true
+{% else %}
+server: "https://{{ hostvars[groups['control_plane'][0]].ansible_host }}:{{ k3s_api_port }}"
+{% endif %}
+
+etcd-snapshot-schedule-cron: "{{ k3s_snapshot_cron }}"
+etcd-snapshot-retention: {{ k3s_snapshot_retention }}
+secrets-encryption: true
+
+disable:
+{% for c in k3s_disable %}
+  - {{ c }}
+{% endfor %}
+
+{% if k3s_expose_metrics %}
+etcd-expose-metrics: true
+kube-controller-manager-arg:
+  - "bind-address=0.0.0.0"
+kube-scheduler-arg:
+  - "bind-address=0.0.0.0"
+kube-proxy-arg:
+  - "metrics-bind-address=0.0.0.0"
+{% endif %}
+
+kube-apiserver-arg:
+  - "default-not-ready-toleration-seconds=30"
+  - "default-unreachable-toleration-seconds=30"
+  - "audit-log-path=/var/log/k3s-audit.log"
+  - "audit-log-maxage=14"
+  - "audit-log-maxbackup=3"
+  - "audit-log-maxsize=64"
+
+kubelet-arg:
+  - "system-reserved={{ k3s_system_reserved }}"
+  - "kube-reserved={{ k3s_kube_reserved }}"
+  - "eviction-hard=memory.available<256Mi,nodefs.available<10%"
+  - "eviction-soft=memory.available<512Mi,nodefs.available<15%"
+  - "eviction-soft-grace-period=memory.available=2m,nodefs.available=2m"
+  - "container-log-max-size=16Mi"
+  - "container-log-max-files=3"
+
+node-label:
+{% for l in k3s_node_labels %}
+  - "{{ l }}"
+{% endfor %}

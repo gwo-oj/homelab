@@ -1,0 +1,189 @@
+---
+version: "3"
+
+vars:
+  ANSIBLE: "{{.ROOT_DIR}}/ansible"
+  SCRIPTS: "{{.ROOT_DIR}}/scripts"
+  K8S: "{{.ROOT_DIR}}/kubernetes"
+  VARS_DIR: "{{.ROOT_DIR}}/ansible/inventory/group_vars/all"
+  AGE_KEY: "{{.ROOT_DIR}}/age.key"
+  CLUSTER:
+    sh: yq -r '.cluster_name' ansible/inventory/group_vars/all/main.yml 2>/dev/null || echo homeserver
+
+env:
+  KUBECONFIG: "{{.ROOT_DIR}}/kubeconfig"
+  SOPS_AGE_KEY_FILE: "{{.ROOT_DIR}}/age.key"
+  ANSIBLE_CONFIG: "{{.ROOT_DIR}}/ansible/ansible.cfg"
+
+tasks:
+  default:
+    cmds: ["task --list"]
+    silent: true
+
+  # --- bootstrap ---
+
+  bootstrap:
+    desc: Provision the host, install k3s, bootstrap Flux
+    prompt: This will provision the host and bootstrap Flux. Continue?
+    cmds:
+      - task: bootstrap:preflight
+      - task: ansible:apply
+      - task: bootstrap:secrets
+      - task: bootstrap:flux
+      - task: bootstrap:wait
+
+  bootstrap:preflight:
+    desc: Check tools, keys and host resources
+    cmds: ["bash {{.SCRIPTS}}/00-preflight.sh"]
+
+  bootstrap:secrets:
+    desc: Load the age key into the cluster
+    cmds: ["bash {{.SCRIPTS}}/30-sops-secret.sh"]
+
+  bootstrap:flux:
+    desc: Bootstrap Flux
+    cmds: ["bash {{.SCRIPTS}}/40-flux-bootstrap.sh"]
+
+  bootstrap:wait:
+    desc: Wait for all Flux kustomizations to be ready
+    cmds: ["bash {{.SCRIPTS}}/50-wait-ready.sh"]
+
+  # --- ansible ---
+
+  ansible:deps:
+    desc: Install Ansible collections
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible-galaxy collection install -r requirements.yml"]
+
+  ansible:check:
+    desc: Dry run of site.yml
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible-playbook playbooks/site.yml --check --diff {{.CLI_ARGS}}"]
+
+  ansible:apply:
+    desc: Run site.yml
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible-playbook playbooks/site.yml {{.CLI_ARGS}}"]
+
+  ansible:ping:
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible all -m ping"]
+
+  ansible:lint:
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible-lint playbooks roles"]
+
+  node:add:
+    desc: "Join a node from the inventory (task node:add -- node2)"
+    dir: "{{.ANSIBLE}}"
+    prompt: "Add {{.CLI_ARGS}} to the cluster?"
+    cmds: ["ansible-playbook playbooks/k3s-join.yml -e target={{.CLI_ARGS}}"]
+
+  # --- cluster ---
+
+  status:
+    desc: Nodes, Flux state, unhealthy pods
+    cmds:
+      - kubectl get nodes -o wide
+      - flux get kustomizations -A
+      - flux get all -A --status-selector ready=false || true
+      - kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded || true
+
+  reconcile:
+    desc: Pull from Git and reconcile now
+    cmds:
+      - flux reconcile source git flux-system -n flux-system
+      - flux reconcile kustomization flux-system -n flux-system --with-source
+
+  diff:
+    desc: Diff Git against the cluster
+    cmds: ["flux diff kustomization flux-system --path {{.K8S}}/clusters/{{.CLUSTER}}"]
+
+  logs:
+    desc: Flux errors from the last 30 minutes
+    cmds: ["flux logs -A --level=error --since=30m"]
+
+  # --- secrets ---
+
+  sops:init:
+    desc: Generate an age key and write the public key to .sops.yaml
+    status: ["test -f {{.AGE_KEY}}"]
+    cmds:
+      - age-keygen -o {{.AGE_KEY}} && chmod 600 {{.AGE_KEY}}
+      - sed -i "s|age1REPLACE_ME_RUN_TASK_SOPS_INIT|$(age-keygen -y {{.AGE_KEY}})|g" .sops.yaml
+      - echo "Back up age.key somewhere off this machine. Losing it means losing every secret."
+
+  secrets:init:
+    desc: Create and encrypt the Ansible secrets file
+    deps: [sops:init]
+    status: ["test -f {{.VARS_DIR}}/secrets.sops.yml"]
+    cmds:
+      - cp {{.VARS_DIR}}/secrets.sops.yml.example {{.VARS_DIR}}/secrets.sops.yml
+      - sops -e -i {{.VARS_DIR}}/secrets.sops.yml
+
+  secrets:edit:
+    desc: Edit Ansible secrets
+    cmds: ["sops {{.VARS_DIR}}/secrets.sops.yml"]
+
+  sops:edit:
+    desc: "Edit any SOPS file (task sops:edit -- path)"
+    cmds: ["sops {{.CLI_ARGS}}"]
+
+  # --- validation ---
+
+  validate:
+    desc: Run the same checks as CI
+    cmds:
+      - bash {{.SCRIPTS}}/check-secrets.sh
+      - yamllint --strict kubernetes ansible
+      - task: validate:kustomize
+      - task: validate:ansible
+
+  validate:kustomize:
+    cmds:
+      - |
+        fail=0
+        for d in $(find {{.K8S}} -name kustomization.yaml -printf '%h\n' | sort -u); do
+          kustomize build --enable-helm "$d" >/dev/null || { echo "FAIL $d"; fail=1; }
+        done
+        exit $fail
+
+  validate:ansible:
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible-playbook playbooks/site.yml --syntax-check"]
+
+  hooks:install:
+    desc: Install the pre-commit hook that blocks unencrypted secrets
+    cmds:
+      - printf '#!/bin/sh\nexec bash scripts/check-secrets.sh\n' > .git/hooks/pre-commit
+      - chmod +x .git/hooks/pre-commit
+
+  # --- backups ---
+
+  backup:status:
+    cmds:
+      - kubectl get replicationsources -A
+      - kubectl get replicationdestinations -A
+
+  k3s:snapshot:
+    desc: Take an etcd snapshot now
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible 'control_plane[0]' -b -m command -a 'k3s etcd-snapshot save --name manual'"]
+
+  k3s:snapshots:
+    dir: "{{.ANSIBLE}}"
+    cmds: ["ansible 'control_plane[0]' -b -m command -a 'k3s etcd-snapshot ls'"]
+
+  # --- misc ---
+
+  workstation:
+    desc: Install CLI tools and link dotfiles
+    cmds: ["bash {{.SCRIPTS}}/workstation.sh"]
+
+  nuke:
+    desc: Uninstall k3s and delete all cluster data
+    prompt: This deletes k3s and all PVC data. Are you sure?
+    dir: "{{.ANSIBLE}}"
+    cmds:
+      - ansible control_plane -b -m shell -a "/usr/local/bin/k3s-uninstall.sh; rm -rf /var/lib/rancher /etc/rancher"
+      - rm -f {{.ROOT_DIR}}/kubeconfig
