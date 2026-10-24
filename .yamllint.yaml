@@ -12,9 +12,9 @@ rules:
   indentation:
     spaces: 2
     indent-sequences: consistent
-  document-start:
-    present: true
 
 ignore: |
-  kubernetes/clusters/homeserver/flux-system/gotk-components.yaml
-  .task/
+  *.sops.yaml
+  *.sops.yml
+  kubernetes/clusters/*/flux-system/
+  ansible/.collections/

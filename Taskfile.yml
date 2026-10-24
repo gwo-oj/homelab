@@ -136,17 +136,8 @@ tasks:
     cmds:
       - bash {{.SCRIPTS}}/check-secrets.sh
       - yamllint --strict kubernetes ansible
-      - task: validate:kustomize
+      - bash {{.SCRIPTS}}/validate-k8s.sh
       - task: validate:ansible
-
-  validate:kustomize:
-    cmds:
-      - |
-        fail=0
-        for d in $(find {{.K8S}} -name kustomization.yaml -printf '%h\n' | sort -u); do
-          kustomize build --enable-helm "$d" >/dev/null || { echo "FAIL $d"; fail=1; }
-        done
-        exit $fail
 
   validate:ansible:
     dir: "{{.ANSIBLE}}"

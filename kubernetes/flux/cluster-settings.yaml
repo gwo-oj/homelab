@@ -1,0 +1,13 @@
+---
+# Values substituted into manifests as ${VAR} by the Flux kustomizations.
+# Keep in sync with ansible/inventory/group_vars/all/main.yml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-settings
+  namespace: flux-system
+data:
+  CLUSTER_NAME: homeserver
+  CLUSTER_DOMAIN: home.arpa
+  TIMEZONE: Asia/Seoul
+  NODE_IP: 192.168.0.30
