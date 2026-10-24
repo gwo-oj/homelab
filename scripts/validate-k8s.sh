@@ -15,7 +15,8 @@ paths=$(yq -r 'select(.kind == "Kustomization") | .spec.path' kubernetes/cluster
 
 fail=0
 for p in $paths; do
-  out=$(kustomize build "$p" 2>&1 | flux envsubst --strict 2>&1 \
+  # Flux strips the sops block when it decrypts; do the same here.
+  out=$(kustomize build "$p" 2>&1 | yq 'del(.sops)' | flux envsubst --strict 2>&1 \
     | kubeconform -strict -summary -schema-location default -schema-location "$catalog" 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "FAIL $p"; echo "$out" | sed 's/^/     /'; fail=1

@@ -1,0 +1,31 @@
+---
+# klipper-lb binds :53 on the node. Local keeps client IPs so per-device
+# stats work.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard-dns
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: adguard
+  ports:
+    - name: dns-udp
+      port: 53
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard
+spec:
+  selector:
+    app: adguard
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

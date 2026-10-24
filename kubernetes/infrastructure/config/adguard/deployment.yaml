@@ -1,0 +1,73 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adguard
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: adguard
+  template:
+    metadata:
+      labels:
+        app: adguard
+    spec:
+      initContainers:
+        - name: config
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - sed "s|__ADMIN_PASSWORD_HASH__|$ADMIN_PASSWORD_HASH|" /seed/AdGuardHome.yaml > /conf/AdGuardHome.yaml
+          env:
+            - name: ADMIN_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: adguard-admin
+                  key: ADMIN_PASSWORD_HASH
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+            - name: conf
+              mountPath: /conf
+      containers:
+        - name: adguard
+          image: adguard/adguardhome:v0.107.79
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+            - name: http
+              containerPort: 3000
+          volumeMounts:
+            - name: conf
+              mountPath: /opt/adguardhome/conf
+            - name: work
+              mountPath: /opt/adguardhome/work
+          readinessProbe:
+            httpGet:
+              path: /login.html
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: seed
+          configMap:
+            name: adguard-config
+        - name: conf
+          emptyDir: {}
+        - name: work
+          persistentVolumeClaim:
+            claimName: adguard-work
