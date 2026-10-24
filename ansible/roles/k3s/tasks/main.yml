@@ -25,7 +25,6 @@
   loop:
     - "{{ k3s_config_dir }}"
     - "{{ k3s_config_dir }}/config.yaml.d"
-    - "{{ k3s_data_dir }}/agent/etc/containerd"
 
 - name: Write k3s config
   ansible.builtin.template:
@@ -51,18 +50,12 @@
     mode: "0600"
   notify: Restart k3s
 
-- name: Write containerd template
-  ansible.builtin.template:
-    src: containerd-config.toml.tmpl.j2
-    dest: "{{ k3s_data_dir }}/agent/etc/containerd/config.toml.tmpl"
-    mode: "0644"
-  notify: Restart k3s
-
 - name: Get installed version
   ansible.builtin.command: k3s --version
   register: k3s_installed
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Install k3s
   when: k3s_installed.rc != 0 or k3s_version not in k3s_installed.stdout
@@ -80,6 +73,7 @@
       changed_when: true
 
 - name: Enable k3s
+  when: not ansible_check_mode
   ansible.builtin.systemd_service:
     name: k3s
     enabled: true
@@ -89,6 +83,7 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Wait for API server
+  when: not ansible_check_mode
   ansible.builtin.command: k3s kubectl get --raw=/readyz
   register: k3s_ready
   until: k3s_ready.rc == 0
@@ -97,11 +92,12 @@
   changed_when: false
 
 - name: Wait for node Ready
-  ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ ansible_hostname }} --timeout=120s
+  when: not ansible_check_mode
+  ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ ansible_facts['hostname'] }} --timeout=120s
   changed_when: false
 
 - name: Copy kubeconfig to the repo
-  when: k3s_is_first
+  when: k3s_is_first and not ansible_check_mode
   block:
     - name: Read kubeconfig
       ansible.builtin.slurp:

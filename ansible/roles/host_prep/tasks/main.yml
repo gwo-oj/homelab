@@ -48,6 +48,16 @@
     mode: "0644"
   notify: Reload udev
 
+- name: Create systemd drop-in directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/systemd/journald.conf.d
+    - /etc/systemd/logind.conf.d
+    - /etc/NetworkManager/conf.d
+
 - name: Cap journald size
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/99-homelab.conf

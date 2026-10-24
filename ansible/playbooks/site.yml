@@ -6,12 +6,12 @@
   pre_tasks:
     - name: Check OS family
       ansible.builtin.assert:
-        that: ansible_os_family == 'Debian'
+        that: ansible_facts['os_family'] == 'Debian'
 
     - name: Check memory
       ansible.builtin.assert:
-        that: ansible_memtotal_mb >= 7500
-        fail_msg: "{{ ansible_memtotal_mb }}MB RAM, need at least 8GB"
+        that: ansible_facts['memtotal_mb'] >= 7500
+        fail_msg: "{{ ansible_facts['memtotal_mb'] }}MB RAM, need at least 8GB"
 
   roles:
     # Static IP has to be in place before k3s puts the IP in its certs.

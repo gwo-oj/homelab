@@ -6,9 +6,9 @@ creation_rules:
     encrypted_regex: "^(data|stringData)$"
     mac_only_encrypted: true
     age: >-
-      age1REPLACE_ME_RUN_TASK_SOPS_INIT
+      age1t7s3yggfdathcw8nsd9slzz882rsxs88x56mvvejaay7s67w9u2sz9eq85
 
   - path_regex: .*\.sops\.ya?ml$
     mac_only_encrypted: true
     age: >-
-      age1REPLACE_ME_RUN_TASK_SOPS_INIT
+      age1t7s3yggfdathcw8nsd9slzz882rsxs88x56mvvejaay7s67w9u2sz9eq85

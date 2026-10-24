@@ -3,3 +3,5 @@
   ansible.builtin.systemd_service:
     name: k3s
     state: restarted
+  # the unit doesn't exist yet during a dry run on a fresh host
+  when: not ansible_check_mode

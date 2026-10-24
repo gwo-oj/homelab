@@ -2,6 +2,10 @@
 # Pin the node IP. k3s bakes it into certs and etcd peer URLs, so a DHCP
 # change would break the cluster. Also reserve it on the router.
 #
+# Uses `nmcli connection modify` rather than the nmcli module: the module
+# wants to own the whole connection (it requires the SSID for WiFi), and we
+# only want to touch the IPv4 settings.
+#
 # Safe when run locally. Over SSH this can drop the connection, so for new
 # nodes it's easier to set the IP during the Ubuntu install.
 
@@ -15,6 +19,7 @@
   ansible.builtin.command: nmcli -t -f ipv4.method,ipv4.addresses connection show "{{ node_nm_connection }}"
   register: nm_current
   changed_when: false
+  check_mode: false
 
 - name: Check if already static
   ansible.builtin.set_fact:
@@ -22,36 +27,44 @@
       {{ 'ipv4.method:manual' in nm_current.stdout
          and (ansible_host ~ '/' ~ node_prefix) in nm_current.stdout }}
 
+- name: Report planned change
+  ansible.builtin.debug:
+    msg: "Would switch {{ node_nm_connection }} to {{ ansible_host }}/{{ node_prefix }} via {{ node_gateway }}"
+  when: ansible_check_mode and not network_already_static
+
 - name: Set static IP
-  when: not network_already_static
+  when: not network_already_static and not ansible_check_mode
   block:
     - name: Back up NetworkManager connections
       ansible.builtin.copy:
         src: /etc/NetworkManager/system-connections/
-        dest: "/root/netbackup-{{ ansible_date_time.epoch }}/"
+        dest: "/root/netbackup-{{ ansible_facts['date_time']['epoch'] }}/"
         remote_src: true
         mode: preserve
       failed_when: false
 
-    - name: Get connection type
-      ansible.builtin.command: nmcli -t -f connection.type connection show "{{ node_nm_connection }}"
-      register: nm_type
-      changed_when: false
-
     - name: Switch to manual addressing
-      community.general.nmcli:
-        conn_name: "{{ node_nm_connection }}"
-        type: "{{ 'wifi' if 'wireless' in nm_type.stdout else 'ethernet' }}"
-        ifname: "{{ node_iface }}"
-        method4: manual
-        ip4: "{{ ansible_host }}/{{ node_prefix }}"
-        gw4: "{{ node_gateway }}"
-        dns4: "{{ node_dns }}"
-        may_fail4: false
-        route_metric4: 100
-        method6: auto
-        autoconnect: true
-        state: present
+      ansible.builtin.command:
+        argv:
+          - nmcli
+          - connection
+          - modify
+          - "{{ node_nm_connection }}"
+          - ipv4.method
+          - manual
+          - ipv4.addresses
+          - "{{ ansible_host }}/{{ node_prefix }}"
+          - ipv4.gateway
+          - "{{ node_gateway }}"
+          - ipv4.dns
+          - "{{ node_dns | join(',') }}"
+          - ipv4.may-fail
+          - "no"
+          - ipv4.route-metric
+          - "100"
+          - connection.autoconnect
+          - "yes"
+      changed_when: true
 
     - name: Bring connection up
       ansible.builtin.command: nmcli connection up "{{ node_nm_connection }}"
@@ -81,13 +94,11 @@
 
   rescue:
     - name: Roll back to DHCP
-      community.general.nmcli:
-        conn_name: "{{ node_nm_connection }}"
-        type: "{{ 'wifi' if 'wireless' in (nm_type.stdout | default('')) else 'ethernet' }}"
-        ifname: "{{ node_iface }}"
-        method4: auto
-        may_fail4: true
-        state: present
+      ansible.builtin.command:
+        argv: [nmcli, connection, modify, "{{ node_nm_connection }}",
+               ipv4.method, auto, ipv4.addresses, "", ipv4.gateway, "",
+               ipv4.dns, "", ipv4.may-fail, "yes"]
+      changed_when: true
       when: network_rollback_on_failure
 
     - name: Bring connection back up
